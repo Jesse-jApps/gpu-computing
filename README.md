@@ -1,2 +1,5 @@
 # gpu-computing
-Informations on setting up and using gpu enhanced computations with python
+GPU compution brings many advances if used for the right thing. Here you find some help on how to do GPU enhanced computations with python
+
+## PyOpenCL
+- cl_info.py # get informations about your workstation
