@@ -4,6 +4,14 @@ __pycache__/
 *$py.class
 
 viewer.py
+opengl_plot_prototype
+*.aux
+*.bcf
+*.out
+*.xml
+*.gz
+*.tex
+*.toc
 
 # C extensions
 *.so

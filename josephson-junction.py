@@ -3,7 +3,10 @@ import pyopencl as cl
 import pyopencl.array 
 import numpy as np
 from numpy import linalg
-import argparse, time
+import argparse, time, os
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(BASE, "data")
 
 def get_ctx_queue(devices=[1]):
     """
@@ -40,7 +43,7 @@ class Solver():
     """
     CL_KERNEL = """
     #include <pyopencl-complex.h>
-    #define PI 3.14f
+    #define PI 3.141592f
 
     float kapitza(float value, float w, float a, float t, int row, int col) {
         if(row + 1 == col || row - 1 == col) {
@@ -200,6 +203,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--cl',  help='Solve using OpenCL', action='store_true')
     parser.add_argument('-co', '--compare',  help='Compare results', action='store_true')
     parser.add_argument('-ed', '--evaluatedim',  help='evaluate dim performance', action='store_true')
+    parser.add_argument('-eg', '--evaluategrid',  help='evaluate grid performance', action='store_true')
     args = parser.parse_args()
 
     ctx, queue = get_ctx_queue()
@@ -214,14 +218,15 @@ if __name__ == '__main__':
     steps = 1000
 
     #variable
-    a_range = np.arange(10, 13, 1, dtype=np.float32)
-    w_range = np.arange(10, 13, 1, dtype=np.float32)
+    a_range = np.arange(1, 5, 1, dtype=np.float32)
+    w_range = np.arange(1, 5, 1, dtype=np.float32)
 
     system = System(dim, U, J)
     solver = Solver(ctx, dim)
 
     if args.evaluatedim:
-        dim_range = np.arange(5, 9, 2)
+        print("Evaluating performance for different dimensions...")
+        dim_range = np.arange(3, 41, 2)
 
         numpy_time_results = np.zeros((len(dim_range), 2))
         numpy_data_results = np.zeros((len(dim_range), len(a_range), len(w_range)), dtype=np.complex64)
@@ -232,19 +237,57 @@ if __name__ == '__main__':
             x, y, result = calculate_numpy(system, solver, a_range, w_range, steps, h, dim)
             numpy_time_results[i] = (x,y)
             numpy_data_results[i] = result
-            print(result)
 
         cl_time_results = np.zeros((len(dim_range), 2))
-        cl_data_results = np.zeros((len(dim_range), len(a_range), len(w_range)), dtype=np.complex64)
+        cl_data_results = np.zeros((len(dim_range), len(a_range)*len(w_range)), dtype=np.complex64)
         for i, dim in enumerate(dim_range):
+            system = System(dim, U, J)
+            solver = Solver(ctx, dim)
+
             x, y, result = calculate_cl(system, a_range, w_range, steps, h, dim)
             cl_time_results[i] = (x,y)
-            #cl_data_results[i] = result
-            print(result)
+            cl_data_results[i] = result
 
-        assert np.allclose(numpy_data_results.flatten(), cl_data_results.flatten(), atol=0.005)
+        print("Comparing results...")
+        assert np.allclose(numpy_data_results.flatten(), cl_data_results.flatten(), atol=0.001), "Not equal"
+        print("Success!")
 
-    
+        np.save(os.path.join(DATA, "dim_cl_time_results"), cl_time_results)
+        np.save(os.path.join(DATA, "dim_numpy_time_results"), numpy_time_results)
+
+        print(np.load(os.path.join(DATA, "dim_cl_time_results.npy")))
+        print(np.load(os.path.join(DATA, "dim_numpy_time_results.npy")))
+
+    elif args.evaluategrid:
+        print("Evaluating performance for different grid sizes...")
+        grid_ranges = np.array([np.arange(1, x, 1, dtype=np.float32) for x in np.arange(2, 11, 1)])
+
+
+        numpy_time_results = np.zeros((len(grid_ranges), 2))
+        numpy_data_results = []
+        for i, grid in enumerate(grid_ranges):
+            x, y, result = calculate_numpy(system, solver, grid, grid, steps, h, len(grid)*len(grid))
+            numpy_time_results[i] = (x,y)
+            numpy_data_results += list(result.flatten())
+
+
+        cl_time_results = np.zeros((len(grid_ranges), 2))
+        cl_data_results = []
+        for i, grid in enumerate(grid_ranges):
+            x, y, result = calculate_cl(system, grid, grid, steps, h, len(grid)*len(grid))
+            cl_time_results[i] = (x,y)
+            cl_data_results += list(result.flatten())
+
+
+        print("Comparing results...")
+        assert np.allclose(numpy_data_results, cl_data_results, atol=0.001), "Not equal"
+        print("Success!")
+
+        np.save(os.path.join(DATA, "grid_cl_time_results"), cl_time_results)
+        np.save(os.path.join(DATA, "grid_numpy_time_results"), numpy_time_results)
+
+        print(np.load(os.path.join(DATA, "grid_cl_time_results.npy")))
+        print(np.load(os.path.join(DATA, "grid_numpy_time_results.npy")))
 
     elif args.numpy:
         calculate_numpy(system, solver, a_range, w_range, steps, h, dim)
