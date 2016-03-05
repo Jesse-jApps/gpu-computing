@@ -5,10 +5,18 @@ import numpy as np
 from numpy import linalg
 import argparse, time, os
 
+os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
 
-def get_ctx_queue(devices=[1]):
+
+"""
+Grid limit seems to be at aroun 250x250=62,500 for GeForce 920M
+
+"""
+
+def get_ctx_queue(devices=[0]):
     """
     optain context and queue for spcified devices
     """
@@ -44,13 +52,6 @@ class Solver():
     CL_KERNEL = """
     #include <pyopencl-complex.h>
     #define PI 3.141592f
-
-    float kapitza(float value, float w, float a, float t, int row, int col) {
-        if(row + 1 == col || row - 1 == col) {
-            value += a*cos(w*t+(PI*0.5f));
-        }
-        return value;
-    }
 
     __kernel 
     void calc(__global cfloat_t* states, __global const float* h_0, __global const float* w, __global const float* a, float t, float h, __global cfloat_t *sum)
@@ -204,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('-co', '--compare',  help='Compare results', action='store_true')
     parser.add_argument('-ed', '--evaluatedim',  help='evaluate dim performance', action='store_true')
     parser.add_argument('-eg', '--evaluategrid',  help='evaluate grid performance', action='store_true')
+    parser.add_argument('--clonly',  help='evaluate using opencl only', action='store_true')
     args = parser.parse_args()
 
     ctx, queue = get_ctx_queue()
@@ -214,7 +216,7 @@ if __name__ == '__main__':
     h = 0.005
 
     #variable
-    dim = 5
+    dim = 11
     steps = 1000
 
     #variable
@@ -260,15 +262,16 @@ if __name__ == '__main__':
 
     elif args.evaluategrid:
         print("Evaluating performance for different grid sizes...")
-        grid_ranges = np.array([np.arange(1, x, 1, dtype=np.float32) for x in np.arange(2, 11, 1)])
+        systems = np.arange(10, 20, 10)
+        grid_ranges = np.array([np.arange(1, x, 1, dtype=np.float32) for x in systems])
 
-
-        numpy_time_results = np.zeros((len(grid_ranges), 2))
-        numpy_data_results = []
-        for i, grid in enumerate(grid_ranges):
-            x, y, result = calculate_numpy(system, solver, grid, grid, steps, h, len(grid)*len(grid))
-            numpy_time_results[i] = (x,y)
-            numpy_data_results += list(result.flatten())
+        if not args.clonly:
+            numpy_time_results = np.zeros((len(grid_ranges), 2))
+            numpy_data_results = []
+            for i, grid in enumerate(grid_ranges):
+                x, y, result = calculate_numpy(system, solver, grid, grid, steps, h, len(grid)*len(grid))
+                numpy_time_results[i] = (x,y)
+                numpy_data_results += list(result.flatten())
 
 
         cl_time_results = np.zeros((len(grid_ranges), 2))
@@ -278,16 +281,20 @@ if __name__ == '__main__':
             cl_time_results[i] = (x,y)
             cl_data_results += list(result.flatten())
 
+        if args.clonly:
+            np.save(os.path.join(DATA, "grid_cl_time_results_%dx%d_to_%dx%d_at_dim_%d" %(systems[0], systems[0], systems[-1], systems[-1], dim)), cl_time_results)
 
-        print("Comparing results...")
-        assert np.allclose(numpy_data_results, cl_data_results, atol=0.001), "Not equal"
-        print("Success!")
 
-        np.save(os.path.join(DATA, "grid_cl_time_results"), cl_time_results)
-        np.save(os.path.join(DATA, "grid_numpy_time_results"), numpy_time_results)
+        if not args.clonly:
+            print("Comparing results...")
+            assert np.allclose(numpy_data_results, cl_data_results, atol=0.001), "Not equal"
+            print("Success!")
 
-        print(np.load(os.path.join(DATA, "grid_cl_time_results.npy")))
-        print(np.load(os.path.join(DATA, "grid_numpy_time_results.npy")))
+            np.save(os.path.join(DATA, "grid_cl_time_results"), cl_time_results)
+            np.save(os.path.join(DATA, "grid_numpy_time_results"), numpy_time_results)
+
+            print(np.load(os.path.join(DATA, "grid_cl_time_results.npy")))
+            print(np.load(os.path.join(DATA, "grid_numpy_time_results.npy")))
 
     elif args.numpy:
         calculate_numpy(system, solver, a_range, w_range, steps, h, dim)
