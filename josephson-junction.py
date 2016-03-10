@@ -5,14 +5,14 @@ import numpy as np
 from numpy import linalg
 import argparse, time, os
 
-os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+#os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
 
 
 """
-Grid limit seems to be at aroun 250x250=62,500 for GeForce 920M
+Grid limit seems to be at around 250x250=62,500 for GeForce 920M
 
 """
 
@@ -197,9 +197,12 @@ def calculate_cl(system, a_range, w_range, steps, h, x_value=None):
     return (x_value, time.time()-start_time, cl_sum.get())
 
 
+def create_file_name(platform, calc_type, x_axis, y_axis, additional=[]):
+    return platform+'_'+calc_type+'_'+y_axis+'_on_'+x_axis+'_'.join(additional)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='OpenCL calculation')
+    parser.add_argument('platform',  help='Platform name')
     parser.add_argument('-n', '--numpy',  help='Solve using numpy', action='store_true')
     parser.add_argument('-c', '--cl',  help='Solve using OpenCL', action='store_true')
     parser.add_argument('-co', '--compare',  help='Compare results', action='store_true')
@@ -207,6 +210,8 @@ if __name__ == '__main__':
     parser.add_argument('-eg', '--evaluategrid',  help='evaluate grid performance', action='store_true')
     parser.add_argument('--clonly',  help='evaluate using opencl only', action='store_true')
     args = parser.parse_args()
+
+    platform_name = args.platform
 
     ctx, queue = get_ctx_queue()
 
@@ -254,15 +259,25 @@ if __name__ == '__main__':
         assert np.allclose(numpy_data_results.flatten(), cl_data_results.flatten(), atol=0.001), "Not equal"
         print("Success!")
 
-        np.save(os.path.join(DATA, "dim_cl_time_results"), cl_time_results)
-        np.save(os.path.join(DATA, "dim_numpy_time_results"), numpy_time_results)
+        np.save(os.path.join(DATA, create_file_name(
+            platform_name,
+            'cl',
+            'dim',
+            'time'
+        )), cl_time_results)
+        np.save(os.path.join(DATA, create_file_name(
+            platform_name,
+            'np',
+            'dim',
+            'time'
+        )), numpy_time_results)
 
-        print(np.load(os.path.join(DATA, "dim_cl_time_results.npy")))
-        print(np.load(os.path.join(DATA, "dim_numpy_time_results.npy")))
+        #print(np.load(os.path.join(DATA, "dim_cl_time_results.npy")))
+        #print(np.load(os.path.join(DATA, "dim_numpy_time_results.npy")))
 
     elif args.evaluategrid:
         print("Evaluating performance for different grid sizes...")
-        systems = np.arange(10, 20, 10)
+        systems = np.arange(2, 15, 10)
         grid_ranges = np.array([np.arange(1, x, 1, dtype=np.float32) for x in systems])
 
         if not args.clonly:
@@ -282,7 +297,14 @@ if __name__ == '__main__':
             cl_data_results += list(result.flatten())
 
         if args.clonly:
-            np.save(os.path.join(DATA, "grid_cl_time_results_%dx%d_to_%dx%d_at_dim_%d" %(systems[0], systems[0], systems[-1], systems[-1], dim)), cl_time_results)
+            np.save(os.path.join(DATA, create_file_name(
+                platform_name,
+                'cl',
+                'systemsize',
+                'time',
+                ['for_%dx%d_to_%dx%d' % (systems[0], systems[0], systems[-1], systems[-1]),
+                'at_dim_%d' % dim]
+            )), cl_time_results)
 
 
         if not args.clonly:
@@ -290,11 +312,25 @@ if __name__ == '__main__':
             assert np.allclose(numpy_data_results, cl_data_results, atol=0.001), "Not equal"
             print("Success!")
 
-            np.save(os.path.join(DATA, "grid_cl_time_results"), cl_time_results)
-            np.save(os.path.join(DATA, "grid_numpy_time_results"), numpy_time_results)
+            np.save(os.path.join(DATA, create_file_name(
+                platform_name,
+                'cl',
+                'systemsize',
+                'time',
+                ['for_%dx%d_to_%dx%d' % (systems[0], systems[0], systems[-1], systems[-1]),
+                'at_dim_%d' % dim]
+            )), cl_time_results)
+            np.save(os.path.join(DATA, create_file_name(
+                platform_name,
+                'np',
+                'systemsize',
+                'time',
+                ['for_%dx%d_to_%dx%d' % (systems[0], systems[0], systems[-1], systems[-1]),
+                'at_dim_%d' % dim]
+            )), numpy_time_results)
 
-            print(np.load(os.path.join(DATA, "grid_cl_time_results.npy")))
-            print(np.load(os.path.join(DATA, "grid_numpy_time_results.npy")))
+            #print(np.load(os.path.join(DATA, "grid_cl_time_results.npy")))
+            #print(np.load(os.path.join(DATA, "grid_numpy_time_results.npy")))
 
     elif args.numpy:
         calculate_numpy(system, solver, a_range, w_range, steps, h, dim)
@@ -315,7 +351,7 @@ if __name__ == '__main__':
         assert np.allclose(np_result.flatten(), cl_result.flatten(), atol=0.001), "Not equal"
         print("Success!")
     else:
-        pass
+        parser.print_help()
 
 
 
