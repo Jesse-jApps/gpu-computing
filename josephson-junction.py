@@ -277,7 +277,7 @@ if __name__ == '__main__':
 
     elif args.evaluategrid:
         print("Evaluating performance for different grid sizes...")
-        systems = np.arange(2, 15, 10)
+        systems = np.arange(10, 200, 10)
         grid_ranges = np.array([np.arange(1, x, 1, dtype=np.float32) for x in systems])
 
         if not args.clonly:

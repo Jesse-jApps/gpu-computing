@@ -38,6 +38,24 @@ def density_matrix(T, eigv, eigs, a_state_index=0):
 
     return (p_initial, p_groundstate)
 
+def phi_1_sins(dim):
+    basic_sin  = 1j*np.diagflat([-0.5]*(dim-1), 1) + 1j*np.diagflat([0.5]*(dim-1), -1)
+    basic_sin2 = np.diagflat([0.5]*dim, 0) + np.diagflat([-0.25]*(dim-2), 2) + np.diagflat([-0.25]*(dim-2), -2)
+
+    sin = np.tensordot(basic_sin, np.identity(dim), axes=0).swapaxes(1,2).reshape(dim*dim,-1)
+    sin2 = np.tensordot(basic_sin2, np.identity(dim), axes=0).swapaxes(1,2).reshape(dim*dim,-1)
+
+    return (sin, sin2)
+
+def phi_2_sins(dim):
+    basic_sin  = 1j*np.diagflat([-0.5]*(dim-1), 1) + 1j*np.diagflat([0.5]*(dim-1), -1)
+    basic_sin2 = np.diagflat([0.5]*dim, 0) + np.diagflat([-0.25]*(dim-2), 2) + np.diagflat([-0.25]*(dim-2), -2)
+    
+    sin = np.tensordot(np.identity(dim), basic_sin, axes=0).swapaxes(1,2).reshape(dim*dim,-1)
+    sin2 = np.tensordot(np.identity(dim), basic_sin2, axes=0).swapaxes(1,2).reshape(dim*dim,-1)
+
+    return (sin, sin2)
+
 def H_0_tensor(dim, J_w, J_s, U):
     h_1  = np.diagflat([(x-int(dim/2.0))**2*(U/2.0) for x in range(dim)], 0)
     h_1 += np.diagflat([-0.5*J_w]*(dim-1), 1) + np.diagflat([-0.5*J_w]*(dim-1), -1)
@@ -77,13 +95,14 @@ data_types = {
 
 complex_type = 'cdouble'
 real_type    = 'double'
-mat_dim      = 4
+mat_dim      = 25
 mats_count   = 2 # x*x
-h            = 0.005
+step_size    = 0.005
 U            = 1
 J_w          = 1
 J_s          = 1
 T            = 1
+steps        = 3
 
 aw_range     = (1*J_w, 30*J_w)
 as_range     = (1*J_s, 30*J_s)
@@ -95,9 +114,10 @@ ws_range     = (1*np.sqrt(J_s*U), 30*np.sqrt(J_s*U))
 ctx, queue = get_ctx_queue()
 program = cl.Program(ctx, render_kernel(
     RUNGE_KUTTA_KERNEL, complex_type, real_type, mat_dim, {
-        'step_size': h,
+        'step_size': step_size,
         'b1': '0.16666667',
-        'b2': '0.66666666'
+        'b2': '0.66666666',
+        'total_steps': steps
     }
 )).build()
 
@@ -119,11 +139,16 @@ densities = np.array([density.copy() for x in range(mats_count**2)], dtype=data_
 h = cl.array.to_device(queue, hamiltons)
 p = cl.array.to_device(queue, densities)
 
-Aw = cl.array.to_device(queue, np.arange(aw_range[0], aw_range[1], (aw_range[1] - aw_range[0]) / mats_count))
-As = cl.array.to_device(queue, np.arange(as_range[0], as_range[1], (as_range[1] - as_range[0]) / mats_count))
+Aw = cl.array.to_device(queue, np.arange(aw_range[0], aw_range[1], (aw_range[1] - aw_range[0]) / float(mats_count)))
+As = cl.array.to_device(queue, np.arange(as_range[0], as_range[1], (as_range[1] - as_range[0]) / float(mats_count)))
 
-ww = cl.array.to_device(queue, np.arange(ww_range[0], ww_range[1], (ww_range[1] - ww_range[0]) / mats_count))
-ws = cl.array.to_device(queue, np.arange(ws_range[0], ws_range[1], (ws_range[1] - ws_range[0]) / mats_count))
+ww = cl.array.to_device(queue, np.arange(ww_range[0], ww_range[1], (ww_range[1] - ww_range[0]) / float(mats_count)))
+ws = cl.array.to_device(queue, np.arange(ws_range[0], ws_range[1], (ws_range[1] - ws_range[0]) / float(mats_count)))
+
+pw_sin, pw_sin2 = phi_1_sins(int(np.sqrt(mat_dim)))
+ps_sin, ps_sin2 = phi_2_sins(int(np.sqrt(mat_dim)))
+
+sins = cl.array.to_device(queue, np.array([pw_sin, pw_sin2, ps_sin, ps_sin2], dtype=data_types[complex_type]))
 
 
 sparse = csr_matrix(H)
@@ -132,22 +157,31 @@ col_data = cl.array.to_device(queue, sparse.indices)
 
 start = time.time()
 
-steps = 1
 t = 0
-
-#for i in range(steps):
-program.runge_kutta(queue, (mats_count*mat_dim, mats_count*mat_dim), (mat_dim, mat_dim), 
-    h.data, p.data,
-  #  row_data.data, col_data.data, 
-  #  Aw.data, As.data, ww.data, ws.data, 
-    np.int32(t)
-)
-#queue.finish()
-print("opencl time: %.3f" % (time.time()-start))
-
-t += h
+obs1 = cl.array.to_device(queue, np.zeros((mats_count**2, steps), dtype=data_types[complex_type]))
+obs2 = cl.array.to_device(queue, np.zeros((mats_count**2, steps), dtype=data_types[complex_type]))
+for i in range(steps):
+    program.runge_kutta(queue, (mats_count*mat_dim, mats_count*mat_dim), (mat_dim, mat_dim), 
+        h.data, p.data,
+      #  row_data.data, col_data.data, 
+      #  Aw.data, As.data, ww.data, ws.data, 
+        sins.data,
+        obs1.data,
+        obs2.data,
+        np.int32(t),
+        np.int32(i)
+    )
+    t += step_size
 
     
 queue.flush()
-result = p.get()
+var1 = obs1.get()
+var2 = obs2.get()
 print("opencl time: %.3f" % (time.time()-start))
+
+d1 = p.get()
+for d in d1:
+    print(np.trace(d)) 
+
+
+print(var1)
