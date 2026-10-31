@@ -1,3 +1,13 @@
+## Project status
+
+Historical project, last developed in 2016. GPU experiments and historical performance figures. The recorded results describe the original hardware/software and are not current performance claims.
+
+No current runtime or production compatibility is claimed. The original source
+and results are retained for reference.
+
+Source code authored by Jesse Hinrichsen is licensed under MIT. Third-party
+code and external data retain their existing terms.
+
 # gpu-computing
 GPU computation brings many advances if used for the right thing. Here you find some help on how to do GPU enhanced computations with python
 
